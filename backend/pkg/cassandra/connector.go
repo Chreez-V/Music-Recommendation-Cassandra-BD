@@ -1,29 +1,24 @@
 package cassandra
 
-import "github.com/gocql/gocql"
+import (
+	"log"
 
-var session *gocql.Session
+	"github.com/gocql/gocql"
+)
 
-func Init() *gocql.Session {
-    cluster := gocql.NewCluster("localhost")
-    cluster.Keyspace = "music_recommendation"
-    cluster.Consistency = gocql.Quorum
-    
-    var err error
-    session, err = cluster.CreateSession()
-    if err != nil {
-        panic(err)
-    }
-    
-    return session
+var Session *gocql.Session
+
+func InitSession() {
+	cluster := gocql.NewCluster("127.0.0.1") // o el nombre del servicio en docker-compose
+	cluster.Keyspace = "music_recommendation"
+	cluster.Consistency = gocql.Quorum
+
+	var err error
+	Session, err = cluster.CreateSession()
+	if err != nil {
+		log.Fatalf("Error al conectar a Cassandra: %v", err)
+	}
+
+	log.Println("✅ Conectado a Cassandra")
 }
 
-func GetSession() *gocql.Session {
-    return session
-}
-
-func Close() {
-    if session != nil {
-        session.Close()
-    }
-}

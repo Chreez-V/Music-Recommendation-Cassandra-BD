@@ -99,73 +99,105 @@ async function loadData() {
   console.log("\nCargando datos...");
 
   // Cargar Usuarios
-  const usersData = await readCsv('usuarios.csv');
+  const usersData = await readCsv('users.csv');
   const insertUserStmt = `INSERT INTO ${KEYSPACE}.users (user_id, name, city) VALUES (?, ?, ?)`;
   for (const row of usersData) {
     await client.execute(insertUserStmt, [
-      parseInt(row.usuario_id),
-      row.nombre,
-      row.ciudad
+      parseInt(row.user_id),
+      row.name,
+      row.city
     ], { prepare: true });
   }
   console.log(`Datos de usuarios cargados (${usersData.length} registros).`);
 
   // Cargar Canciones
-  const songsData = await readCsv('canciones.csv');
-  const songGenres = {};
+  const songsData = await readCsv('songs.csv');
   const insertSongStmt = `INSERT INTO ${KEYSPACE}.songs (song_id, title, artist, genre) VALUES (?, ?, ?, ?)`;
   for (const row of songsData) {
     await client.execute(insertSongStmt, [
-      parseInt(row.cancion_id),
-      row.titulo,
-      row.artista,
-      row.genero
+      parseInt(row.song_id),
+      row.title,
+      row.artist,
+      row.genre
     ], { prepare: true });
-    songGenres[parseInt(row.cancion_id)] = row.genero;
   }
   console.log(`Datos de canciones cargados (${songsData.length} registros).`);
 
-  // Cargar Escuchas y la tabla denormalizada
-  const listensData = await readCsv('escuchas.csv');
-  const insertListenStmt = `INSERT INTO ${KEYSPACE}.listens (listen_id, user_id, song_id, listen_date) VALUES (?, ?, ?, ?)`;
-  const insertListensByCityStmt = `INSERT INTO ${KEYSPACE}.listens_by_city (city, listen_date, user_id, song_id) VALUES (?, ?, ?, ?)`;
+  // Cargar listens_by_city directamente desde el CSV
+  const listensByCityData = await readCsv('listens_by_city.csv');
+  const insertListensByCityStmt = `
+    INSERT INTO ${KEYSPACE}.listens_by_city 
+    (city, listen_date, user_id, song_id) 
+    VALUES (?, ?, ?, ?)
+  `;
 
-  let loadedListens = 0;
   let loadedListensByCity = 0;
+  const batchSize = 100; // Tamaño del lote para inserciones masivas
+  let batch = [];
 
-  for (const row of listensData) {
-    const userId = parseInt(row.usuario_id);
-    const songId = parseInt(row.cancion_id);
-    const listenDate = new Date(row.fecha_escucha);
-    const listenId = uuidv4();
+  for (const row of listensByCityData) {
+    batch.push({
+      query: insertListensByCityStmt,
+      params: [
+        row.city,
+        new Date(row.listen_date),
+        parseInt(row.user_id),
+        parseInt(row.song_id)
+      ]
+    });
 
-    // Insertar en la tabla de escuchas principal
-    await client.execute(insertListenStmt, [
-      listenId,
-      userId,
-      songId,
-      listenDate
-    ], { prepare: true });
-    loadedListens++;
-
-    // Obtener la ciudad del usuario para la tabla denormalizada
-    const userQuery = `SELECT city FROM ${KEYSPACE}.users WHERE user_id = ?`;
-    const userResult = await client.execute(userQuery, [userId], { prepare: true });
-    
-    if (userResult.rows.length > 0) {
-      const city = userResult.rows[0].city;
-      await client.execute(insertListensByCityStmt, [
-        city,
-        listenDate,
-        userId,
-        songId
-      ], { prepare: true });
-      loadedListensByCity++;
+    if (batch.length >= batchSize) {
+      await client.batch(batch, { prepare: true });
+      loadedListensByCity += batch.length;
+      batch = [];
+      process.stdout.write(`\rRegistros cargados en listens_by_city: ${loadedListensByCity}`);
     }
   }
 
-  console.log(`Datos de escuchas cargados (${loadedListens} registros).`);
-  console.log(`Datos de listens_by_city cargados (${loadedListensByCity} registros).`);
+  // Insertar cualquier registro restante en el batch
+  if (batch.length > 0) {
+    await client.batch(batch, { prepare: true });
+    loadedListensByCity += batch.length;
+  }
+
+  console.log(`\nDatos de listens_by_city cargados (${loadedListensByCity} registros).`);
+
+  // Cargar escuchas normales (opcional, si también las necesitas)
+const listensData = await readCsv('listens.csv');
+const insertListenStmt = `
+  INSERT INTO ${KEYSPACE}.listens 
+  (listen_id, user_id, song_id, listen_date) 
+  VALUES (?, ?, ?, ?)
+`;
+
+let loadedListens = 0;
+batch = [];
+
+for (const row of listensData) {
+  
+  batch.push({
+    query: insertListenStmt,
+    params: [
+      uuidv4(),  // Usamos el TimeUUID convertido
+      parseInt(row.user_id),
+      parseInt(row.song_id),
+      new Date(row.listen_date)
+    ]
+  });
+
+  if (batch.length >= batchSize) {
+    await client.batch(batch, { prepare: true });
+    loadedListens += batch.length;
+    batch = [];
+    process.stdout.write(`\rRegistros cargados en listens: ${loadedListens}`);
+  }
+}
+  if (batch.length > 0) {
+    await client.batch(batch, { prepare: true });
+    loadedListens += batch.length;
+  }
+
+  console.log(`\nDatos de escuchas cargados (${loadedListens} registros).`);
 }
 
 async function readCsv(filePath) {
@@ -189,47 +221,24 @@ async function verifyData() {
   console.log("\nVerificando datos...");
   
   try {
-    const usersCount = await client.execute(`SELECT COUNT(*) FROM ${KEYSPACE}.users;`);
-    console.log(`Total de usuarios: ${usersCount.rows[0].count}`);
-
-    const songsCount = await client.execute(`SELECT COUNT(*) FROM ${KEYSPACE}.songs;`);
-    console.log(`Total de canciones: ${songsCount.rows[0].count}`);
-
-    const listensCount = await client.execute(`SELECT COUNT(*) FROM ${KEYSPACE}.listens;`);
-    console.log(`Total de escuchas: ${listensCount.rows[0].count}`);
-
-    const listensByCityCount = await client.execute(`SELECT COUNT(*) FROM ${KEYSPACE}.listens_by_city;`);
+    const listensByCityCount = await client.execute(
+      `SELECT COUNT(*) FROM ${KEYSPACE}.listens_by_city;`
+    );
     console.log(`Total de registros en listens_by_city: ${listensByCityCount.rows[0].count}`);
 
-    // Ejemplo de consulta OLAP simplificada: Escuchas por ciudad
+    // Ejemplo de consulta por ciudad
     console.log("\nEjemplo de consulta por ciudad:");
-    const cityResult = await client.execute(
-      `SELECT city FROM ${KEYSPACE}.listens_by_city LIMIT 1;`
+    const cities = await client.execute(
+      `SELECT DISTINCT city FROM ${KEYSPACE}.listens_by_city LIMIT 5;`
     );
     
-    if (cityResult.rows.length > 0) {
-      const sampleCity = cityResult.rows[0].city;
-      const query = `
-        SELECT COUNT(*) FROM ${KEYSPACE}.listens_by_city
-        WHERE city = ?;
-      `;
-      const result = await client.execute(query, [sampleCity], { prepare: true });
-      console.log(`Número de escuchas en ${sampleCity}: ${result.rows[0].count}`);
-    }
-
-    // Ejemplo de consulta usando el índice de género
-    console.log("\nEjemplo de consulta por género:");
-    const genreResult = await client.execute(
-      `SELECT genre FROM ${KEYSPACE}.songs WHERE genre = 'Rock' LIMIT 1;`
-    );
-    
-    if (genreResult.rows.length > 0) {
-      const query = `
-        SELECT COUNT(*) FROM ${KEYSPACE}.songs
-        WHERE genre = ?;
-      `;
-      const result = await client.execute(query, ['Rock'], { prepare: true });
-      console.log(`Número de canciones de Rock: ${result.rows[0].count}`);
+    for (const row of cities.rows) {
+      const count = await client.execute(
+        `SELECT COUNT(*) FROM ${KEYSPACE}.listens_by_city WHERE city = ?;`,
+        [row.city],
+        { prepare: true }
+      );
+      console.log(`- ${row.city}: ${count.rows[0].count} escuchas`);
     }
   } catch (err) {
     console.error(`Error al verificar datos: ${err.message}`);

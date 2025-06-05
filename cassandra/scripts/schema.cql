@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS music_recommendation.songs (
 
 -- Tabla de escuchas (sin cambios)
 CREATE TABLE IF NOT EXISTS music_recommendation.listens (
-    listen_id TIMEUUID,
+    listen_id UUID,
     user_id INT,
     song_id INT,
     listen_date TIMESTAMP,
