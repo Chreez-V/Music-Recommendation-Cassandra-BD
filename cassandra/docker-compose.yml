@@ -8,18 +8,18 @@ services:
       - ./scripts:/scripts
       - cassandra_data:/var/lib/cassandra
     environment:
-      - CASSANDRA_ENABLE_MATERIALIZED_VIEWS=true
-      - CASSANDRA_CLUSTER_NAME=MusicCluster
-      - MAX_HEAP_SIZE=1G
-      - HEAP_NEWSIZE=256M
-      # Configuración JVM optimizada para Cassandra 4.1+:
-      - JVM_OPTS=-XX:+UseG1GC -XX:+UseNUMA -XX:+AlwaysPreTouch -XX:G1RSetUpdatingPauseTimePercent=5
-      # Deshabilita completamente el CMS:
-      - JVM_EXTRA_OPTS=-XX:-UseConcMarkSweepGC
+      CASSANDRA_ENABLE_MATERIALIZED_VIEWS: "true"
+      CASSANDRA_CLUSTER_NAME: "MyCluster"
+      CASSANDRA_DC: "dc1"
+      CASSANDRA_RACK: "rack1"
+      MAX_HEAP_SIZE: "1G"
+      HEAP_NEWSIZE: "256M"
+      # Configuración simplificada para Cassandra 4.1+
+      JVM_OPTS: "-Xms1G -Xmx1G"
     mem_limit: 2g
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "nodetool statusgossip"]
+      test: ["CMD-SHELL", "nodetool status | grep UN"]
       interval: 20s
       timeout: 10s
       retries: 15
