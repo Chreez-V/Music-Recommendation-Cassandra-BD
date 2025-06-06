@@ -1,9 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { User } from '@/lib/users';
-import { getUsers } from '@/lib/users';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,46 +8,27 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { useEffect, useState } from 'react';
 
-export function UserSelector() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface UserSelectorProps {
+  onUserChange: (user: { city: string }) => void;
+  users: any[];
+  initialCity: string;
+}
+
+export function UserSelector({ onUserChange, users, initialCity }: UserSelectorProps) {
+  const [selectedUser, setSelectedUser] = useState<any>(null);
 
   useEffect(() => {
-    async function loadUsers() {
-      try {
-        const data = await getUsers();
-        console.log('Loaded users:', data); // Depuración
-        
-        if (data.length === 0) {
-          setError('No se encontraron usuarios en la base de datos');
-        } else {
-          setUsers(data);
-          setSelectedUser(data[0]);
-        }
-      } catch (err) {
-        console.error('Error loading users:', err);
-        setError('Error al cargar usuarios. Verifica la conexión al backend.');
-      } finally {
-        setLoading(false);
-      }
+    // Establecer usuario inicial
+    if (users.length > 0) {
+      const user = users.find(u => u.city === initialCity) || users[0];
+      setSelectedUser(user);
     }
-    
-    loadUsers();
-  }, []);
-
-  if (loading) {
-    return <Button variant="outline" disabled>Cargando usuarios...</Button>;
-  }
-
-  if (error) {
-    return <Button variant="outline" disabled>{error}</Button>;
-  }
+  }, [users, initialCity]);
 
   if (users.length === 0) {
-    return <Button variant="outline" disabled>No hay usuarios disponibles</Button>;
+    return <Button variant="outline" disabled>No hay usuarios</Button>;
   }
 
   return (
@@ -65,7 +43,11 @@ export function UserSelector() {
         {users.map((user) => (
           <DropdownMenuItem
             key={user.user_id}
-            onClick={() => setSelectedUser(user)}
+            onClick={() => {
+              setSelectedUser(user);
+              onUserChange({ city: user.city });
+            }}
+            className="cursor-pointer"
           >
             {user.name} ({user.city})
           </DropdownMenuItem>

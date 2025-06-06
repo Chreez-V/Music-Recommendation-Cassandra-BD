@@ -1,14 +1,18 @@
-// components/client-header.tsx
 'use client';
 
 import { UserSelector } from '@/components/ui/user-selector';
 import { Music } from 'lucide-react';
 import Link from 'next/link';
 
-export function ClientHeader() {
-  const handleUserChange = (userId: number) => {
-    console.log("User changed to:", userId);
-    // Aquí puedes actualizar el estado del usuario
+interface ClientHeaderProps {
+  onCityChange: (city: string) => void;
+  users: any[];
+  initialCity: string;
+}
+
+export function ClientHeader({ onCityChange, users, initialCity }: ClientHeaderProps) {
+  const handleUserChange = (user: { city: string }) => {
+    onCityChange(user.city);
   };
 
   return (
@@ -18,7 +22,11 @@ export function ClientHeader() {
         <span className="sr-only md:not-sr-only">AuraBeat</span>
       </Link>
       <nav className="ml-auto flex gap-2">
-        <UserSelector onUserChange={handleUserChange} />
+        <UserSelector 
+          onUserChange={handleUserChange} 
+          users={users}
+          initialCity={initialCity}
+        />
       </nav>
     </header>
   );

@@ -1,29 +1,12 @@
 "use client"
 
-import { useState } from "react"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts"
-import { Calendar, ChevronLeft, ChevronRight } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
+import { useState, useEffect } from "react"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
+import { Calendar } from "lucide-react"
+import { getMonthlyGenres, getQuarterlyGenres, getUserGenres } from "@/lib/olap"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-
-// Mock data for listening statistics
-const monthlyData = [
-  { month: "Jan", pop: 45, rock: 32, hiphop: 18, electronic: 25, jazz: 8, classical: 5 },
-  { month: "Feb", pop: 50, rock: 35, hiphop: 20, electronic: 28, jazz: 10, classical: 7 },
-  { month: "Mar", pop: 35, rock: 40, hiphop: 25, electronic: 30, jazz: 12, classical: 8 },
-  { month: "Apr", pop: 30, rock: 45, hiphop: 30, electronic: 35, jazz: 15, classical: 10 },
-  { month: "May", pop: 25, rock: 50, hiphop: 35, electronic: 40, jazz: 18, classical: 12 },
-  { month: "Jun", pop: 20, rock: 55, hiphop: 40, electronic: 45, jazz: 20, classical: 15 },
-  { month: "Jul", pop: 15, rock: 60, hiphop: 45, electronic: 50, jazz: 22, classical: 18 },
-  { month: "Aug", pop: 20, rock: 55, hiphop: 50, electronic: 45, jazz: 25, classical: 20 },
-  { month: "Sep", pop: 25, rock: 50, hiphop: 45, electronic: 40, jazz: 20, classical: 15 },
-  { month: "Oct", pop: 30, rock: 45, hiphop: 40, electronic: 35, jazz: 15, classical: 10 },
-  { month: "Nov", pop: 35, rock: 40, hiphop: 35, electronic: 30, jazz: 10, classical: 5 },
-  { month: "Dec", pop: 40, rock: 35, hiphop: 30, electronic: 25, jazz: 8, classical: 3 },
-]
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 const genreColors = {
   pop: "#8884d8",
@@ -35,221 +18,179 @@ const genreColors = {
 }
 
 export function ListeningStats() {
-  const [year, setYear] = useState("2023")
-  const [viewType, setViewType] = useState("monthly")
+  const [year, setYear] = useState(new Date().getFullYear().toString())
+  const [viewType, setViewType] = useState<"monthly" | "quarterly" | "byUser">("monthly")
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        let result
+        if (viewType === "monthly") {
+          result = await getMonthlyGenres(year)
+        } else if (viewType === "quarterly") {
+          result = await getQuarterlyGenres(year)
+        } else {
+          result = await getUserGenres()
+        }
+        setData(result)
+      } catch (error) {
+        console.error("Error fetching OLAP data:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [viewType, year])
+
+  // Obtener todos los géneros únicos presentes en los datos
+  const allGenres = Array.from(
+    new Set(
+      data.flatMap(item => 
+        Object.keys(item).filter(key => key !== "month" && key !== "quarter" && key !== "userId" && key !== "userName")
+      )
+    )
+  )
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Controles */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Listening Statistics</h2>
-          <p className="text-muted-foreground text-sm sm:text-base">Track your music listening habits over time</p>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Análisis OLAP de Escuchas</h2>
+          <p className="text-muted-foreground text-sm sm:text-base">
+            Datos reales agregados desde Cassandra
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8 sm:h-9 sm:w-9">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex items-center gap-1">
-            <Calendar className="h-4 w-4" />
-            <span>{year}</span>
-          </div>
-          <Button variant="outline" size="icon" className="h-8 w-8 sm:h-9 sm:w-9">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="w-[80px] sm:w-[100px]">
-              <SelectValue placeholder="Year" />
+        
+        <div className="flex items-center gap-3">
+          <Select 
+            value={viewType} 
+            onValueChange={(v: "monthly" | "quarterly" | "byUser") => setViewType(v)}
+          >
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Vista" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="2021">2021</SelectItem>
-              <SelectItem value="2022">2022</SelectItem>
-              <SelectItem value="2023">2023</SelectItem>
-              <SelectItem value="2024">2024</SelectItem>
+              <SelectItem value="monthly">Por Mes</SelectItem>
+              <SelectItem value="quarterly">Por Trimestre</SelectItem>
+              <SelectItem value="byUser">Por Usuario</SelectItem>
             </SelectContent>
           </Select>
+
+          {viewType !== "byUser" && (
+            <Select value={year} onValueChange={setYear}>
+              <SelectTrigger className="w-[100px]">
+                <SelectValue placeholder="Año" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="2023">2023</SelectItem>
+                <SelectItem value="2024">2024</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         </div>
       </div>
 
+      {/* Gráfico principal */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Tracks by Genre</CardTitle>
-              <CardDescription>Number of tracks listened by genre each month</CardDescription>
-            </div>
-            <Select value={viewType} onValueChange={setViewType}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue placeholder="View" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="monthly">Monthly</SelectItem>
-                <SelectItem value="quarterly">Quarterly</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <CardTitle>
+            {viewType === "monthly" ? "Escuchas Mensuales por Género" :
+             viewType === "quarterly" ? "Escuchas Trimestrales por Género" :
+             "Escuchas por Usuario y Género"}
+          </CardTitle>
+          <CardDescription>
+            {viewType !== "byUser" && `Año: ${year}`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-[300px] sm:h-[400px]">
-            <ChartContainer
-              config={{
-                rock: {
-                  label: "Rock",
-                  color: "hsl(var(--chart-1))",
-                },
-                pop: {
-                  label: "Pop",
-                  color: "hsl(var(--chart-2))",
-                },
-                hiphop: {
-                  label: "Hip Hop",
-                  color: "hsl(var(--chart-3))",
-                },
-                electronic: {
-                  label: "Electronic",
-                  color: "hsl(var(--chart-4))",
-                },
-                jazz: {
-                  label: "Jazz",
-                  color: "hsl(var(--chart-5))",
-                },
-                classical: {
-                  label: "Classical",
-                  color: "hsl(var(--chart-6))",
-                },
-              }}
-            >
+          <div className="h-[400px]">
+            {data.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyData} margin={{ top: 20, right: 10, left: 0, bottom: 5 }}>
+                <BarChart
+                  data={data}
+                  margin={{ top: 20, right: 30, left: 20, bottom: viewType === "byUser" ? 100 : 60 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} width={30} />
-                  <Bar dataKey="rock" stackId="a" fill="var(--color-rock)" />
-                  <Bar dataKey="pop" stackId="a" fill="var(--color-pop)" />
-                  <Bar dataKey="hiphop" stackId="a" fill="var(--color-hiphop)" />
-                  <Bar dataKey="electronic" stackId="a" fill="var(--color-electronic)" />
-                  <Bar dataKey="jazz" stackId="a" fill="var(--color-jazz)" />
-                  <Bar dataKey="classical" stackId="a" fill="var(--color-classical)" />
-                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <XAxis 
+                    dataKey={viewType === "monthly" ? "month" : viewType === "quarterly" ? "quarter" : "userName"} 
+                    angle={-45} 
+                    textAnchor="end"
+                    height={viewType === "byUser" ? 100 : 60}
+                  />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  {allGenres.map(genre => (
+                    <Bar 
+                      key={genre} 
+                      dataKey={genre} 
+                      fill={genreColors[genre as keyof typeof genreColors] || "#8884d8"} 
+                      name={genre.charAt(0).toUpperCase() + genre.slice(1)} 
+                    />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
-            </ChartContainer>
+            ) : (
+              <div className="flex justify-center items-center h-full">
+                <p className="text-muted-foreground">No hay datos disponibles</p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Genres</CardTitle>
-            <CardDescription>Your most listened genres in {year}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 rounded-full" style={{ backgroundColor: genreColors.rock }}></div>
-                  <span>Rock</span>
-                </div>
-                <span className="font-medium">45%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 rounded-full" style={{ backgroundColor: genreColors.pop }}></div>
-                  <span>Pop</span>
-                </div>
-                <span className="font-medium">25%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 rounded-full" style={{ backgroundColor: genreColors.electronic }}></div>
-                  <span>Electronic</span>
-                </div>
-                <span className="font-medium">15%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 rounded-full" style={{ backgroundColor: genreColors.hiphop }}></div>
-                  <span>Hip Hop</span>
-                </div>
-                <span className="font-medium">10%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 rounded-full" style={{ backgroundColor: genreColors.jazz }}></div>
-                  <span>Jazz</span>
-                </div>
-                <span className="font-medium">3%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 rounded-full" style={{ backgroundColor: genreColors.classical }}></div>
-                  <span>Classical</span>
-                </div>
-                <span className="font-medium">2%</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Listening Activity</CardTitle>
-            <CardDescription>Your listening patterns in {year}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm">Total Tracks</span>
-                  <span className="text-sm font-medium">2,543</span>
-                </div>
-                <div className="h-2 w-full rounded-full bg-secondary">
-                  <div className="h-2 w-[85%] rounded-full bg-primary"></div>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm">Total Hours</span>
-                  <span className="text-sm font-medium">267 hrs</span>
-                </div>
-                <div className="h-2 w-full rounded-full bg-secondary">
-                  <div className="h-2 w-[70%] rounded-full bg-primary"></div>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm">Unique Artists</span>
-                  <span className="text-sm font-medium">342</span>
-                </div>
-                <div className="h-2 w-full rounded-full bg-secondary">
-                  <div className="h-2 w-[60%] rounded-full bg-primary"></div>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm">Unique Albums</span>
-                  <span className="text-sm font-medium">189</span>
-                </div>
-                <div className="h-2 w-full rounded-full bg-secondary">
-                  <div className="h-2 w-[45%] rounded-full bg-primary"></div>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm">Peak Listening Day</span>
-                  <span className="text-sm font-medium">Saturday</span>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm">Peak Listening Time</span>
-                  <span className="text-sm font-medium">7:00 PM - 10:00 PM</span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Tabla de datos */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Datos Detallados</CardTitle>
+          <CardDescription>
+            {viewType === "monthly" ? "Escuchas por mes y género" :
+             viewType === "quarterly" ? "Escuchas por trimestre y género" :
+             "Escuchas por usuario y género"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{viewType === "monthly" ? "Mes" : viewType === "quarterly" ? "Trimestre" : "Usuario"}</TableHead>
+                  {allGenres.map(genre => (
+                    <TableHead key={genre} className="text-right capitalize">{genre}</TableHead>
+                  ))}
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((row) => (
+                  <TableRow key={row.month || row.quarter || row.userId}>
+                    <TableCell>{row.month || row.quarter || row.userName || `Usuario ${row.userId}`}</TableCell>
+                    {allGenres.map(genre => (
+                      <TableCell key={genre} className="text-right">{row[genre] || 0}</TableCell>
+                    ))}
+                    <TableCell className="text-right font-medium">
+                      {allGenres.reduce((sum, genre) => sum + (row[genre] || 0), 0)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

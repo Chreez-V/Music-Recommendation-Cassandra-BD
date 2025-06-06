@@ -1,3 +1,5 @@
+
+'use client';
 import type { Metadata } from "next"
 import Link from "next/link"
 import { Music, TrendingUp, MapPin, BarChart3 } from "lucide-react"
@@ -10,11 +12,14 @@ import { LocalPopular } from "@/components/local-popular"
 import { PersonalRecommendations } from "@/components/personal-recommendations"
 import { ListeningStats } from "@/components/listening-stats"
 import { ClientHeader } from "@/components/ClientHeader";
+import { useState,useEffect } from "react";
 
+/*
 export const metadata: Metadata = {
   title: "Music Recommendation System",
   description: "A personalized music recommendation system",
 }
+*/
 
 
 
@@ -26,10 +31,40 @@ export default function DashboardPage() {
     // Por ejemplo, podrías usar React Context o Zustand para manejar el estado del usuario
   };
 
+
+  // Cargar usuarios al iniciar
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const response = await fetch('http://localhost:8080/usuario');
+        const data = await response.json();
+        setUsers(data);
+        
+        // Establecer ciudad inicial si hay usuarios
+        if (data.length > 0) {
+          setCurrentCity(data[0].city);
+        }
+      } catch (error) {
+        console.error('Error loading users:', error);
+      }
+    };
+
+    loadUsers();
+  }, []);
+
+  const [currentCity, setCurrentCity] = useState("San Francisco");
+  const [users, setUsers] = useState<any[]>([]);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
-<ClientHeader />
-      {/*
+      <ClientHeader 
+        onCityChange={(city) => {
+          console.log("Changing city to:", city);
+          setCurrentCity(city);
+        }} 
+        users={users}
+        initialCity={currentCity}
+      />      {/*
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <Music className="h-5 w-5 md:h-6 md:w-6" />
@@ -95,7 +130,7 @@ export default function DashboardPage() {
             <GenreRecommendations />
           </TabsContent>
           <TabsContent value="local" className="space-y-4">
-            <LocalPopular />
+ <LocalPopular city={currentCity} />
           </TabsContent>
           <TabsContent value="recommended" className="space-y-4">
             <PersonalRecommendations />
