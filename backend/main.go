@@ -26,20 +26,31 @@ func main() {
 	// Configurar router
 	router := gin.Default()
 
-	// Rutas de usuarios
-	router.POST("/users", userHandler.CreateUser)
-	router.GET("/users/:id", userHandler.GetUser)
+	// Grupo de rutas para usuarios
+	userRoutes := router.Group("/users")
+	{
+		userRoutes.POST("/", userHandler.CreateUser)
+		userRoutes.GET("/:id", userHandler.GetUser)
+
+		// Subgrupo para escuchas de usuarios - USANDO EL MISMO PARÁMETRO :id
+		listenRoutes := userRoutes.Group("/:id")
+		{
+			listenRoutes.GET("/listens", listenHandler.GetUserListens)
+			listenRoutes.GET("/recommendations", listenHandler.GetRecommendations)
+			listenRoutes.GET("/recommendations/genre/:genre", listenHandler.GetRecommendationsByGenre)
+		}
+	}
 
 	// Rutas de canciones
-	router.POST("/songs", songHandler.CreateSong)
-	router.GET("/songs/:id", songHandler.GetSong)
-	router.GET("/songs/genre/:genre", songHandler.GetSongsByGenre)
+	songRoutes := router.Group("/songs")
+	{
+		songRoutes.POST("/", songHandler.CreateSong)
+		songRoutes.GET("/:id", songHandler.GetSong)
+		songRoutes.GET("/genre/:genre", songHandler.GetSongsByGenre)
+	}
 
-	// Rutas de escuchas
+	// Ruta independiente para registrar escuchas
 	router.POST("/listens", listenHandler.RecordListen)
-	router.GET("/users/:user_id/listens", listenHandler.GetUserListens)
-	router.GET("/users/:user_id/recommendations", listenHandler.GetRecommendations)
-	router.GET("/users/:user_id/recommendations/genre/:genre", listenHandler.GetRecommendationsByGenre)
 
 	// Iniciar servidor
 	router.Run(":8080")
