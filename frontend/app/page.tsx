@@ -9,27 +9,38 @@ import { GenreRecommendations } from "@/components/genre-recommendations"
 import { LocalPopular } from "@/components/local-popular"
 import { PersonalRecommendations } from "@/components/personal-recommendations"
 import { ListeningStats } from "@/components/listening-stats"
+import { ClientHeader } from "@/components/ClientHeader";
 
 export const metadata: Metadata = {
   title: "Music Recommendation System",
   description: "A personalized music recommendation system",
 }
 
+
+
 export default function DashboardPage() {
+
+  const handleUserChange = (userId: number) => {
+    console.log("User changed to:", userId);
+    // Aquí puedes actualizar el estado global o hacer fetch de los datos del nuevo usuario
+    // Por ejemplo, podrías usar React Context o Zustand para manejar el estado del usuario
+  };
+
   return (
     <div className="flex min-h-screen w-full flex-col">
+<ClientHeader />
+      {/*
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <Music className="h-5 w-5 md:h-6 md:w-6" />
           <span className="sr-only md:not-sr-only">AuraBeat</span>
         </Link>
         <nav className="ml-auto flex gap-2">
-          <Button variant="outline" size="sm">
-            Sign In
-          </Button>
+            <UserSelector onUserChange={handleUserChange} />
           <Button size="sm">Sign Up</Button>
         </nav>
       </header>
+      */}
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
