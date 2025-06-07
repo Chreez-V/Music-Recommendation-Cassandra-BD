@@ -1,20 +1,17 @@
-'use client';
+'use client'
 
-import { UserSelector } from '@/components/ui/user-selector';
-import { Music } from 'lucide-react';
-import Link from 'next/link';
+import { UserSelector } from '@/components/ui/user-selector'
+import { Music } from 'lucide-react'
+import Link from 'next/link'
 
 interface ClientHeaderProps {
-  onCityChange: (city: string) => void;
-  users: any[];
-  initialCity: string;
+  onCityChange: (city: string) => void
+  onUserChange: (user: any) => void
+  users: any[]
+  initialCity: string
 }
 
-export function ClientHeader({ onCityChange, users, initialCity }: ClientHeaderProps) {
-  const handleUserChange = (user: { city: string }) => {
-    onCityChange(user.city);
-  };
-
+export function ClientHeader({ onCityChange, onUserChange, users, initialCity }: ClientHeaderProps) {
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
       <Link href="/" className="flex items-center gap-2 font-semibold">
@@ -23,11 +20,11 @@ export function ClientHeader({ onCityChange, users, initialCity }: ClientHeaderP
       </Link>
       <nav className="ml-auto flex gap-2">
         <UserSelector 
-          onUserChange={handleUserChange} 
+          onUserChange={onUserChange} 
           users={users}
           initialCity={initialCity}
         />
       </nav>
     </header>
-  );
+  )
 }

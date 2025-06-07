@@ -1,24 +1,66 @@
 package main
 
 import (
+	"music-recommendation/pkg/api/handlers"
 	"music-recommendation/pkg/cassandra"
+	"music-recommendation/repository"
 	"strconv"
+	"fmt"
 	"time"
+	"sort"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
 )
 
 func main() {
-	cassandra.InitSession()
+	// Inicializar Cassandra
+	session := cassandra.Init()
+	defer cassandra.Close()
 
-	r := gin.Default()
+	// Inicializar repositorios
+	userRepo := repository.NewUserRepository(session)
+	songRepo := repository.NewSongRepository(session)
+	listenRepo := repository.NewListenRepository(session)
+
+	// Inicializar handlers
+	userHandler := handlers.NewUserHandler(userRepo)
+	songHandler := handlers.NewSongHandler(songRepo)
+	listenHandler := handlers.NewListenHandler(listenRepo, userRepo, songRepo)
+
+	// Configurar router
+	router := gin.Default()
 
 	// Configuración CORS
-	r.Use(cors.Default())
+	router.Use(cors.Default())
 
-	// Endpoints de usuario (mantenidos como están)
-	r.GET("/usuario/:id", func(c *gin.Context) {
+	// Grupo de rutas para usuarios
+userRoutes := router.Group("/users")
+{
+    userRoutes.POST("/", userHandler.CreateUser)
+    userRoutes.GET("/:id", userHandler.GetUser)
+
+    // Subgrupo para escuchas de usuarios
+    listenRoutes := userRoutes.Group("/:id")
+    {
+        listenRoutes.GET("/listens", listenHandler.GetUserListens) // Esta ruta es /users/:id/listens
+        listenRoutes.GET("/recommendations", listenHandler.GetRecommendations)
+        listenRoutes.GET("/recommendations/genre/:genre", listenHandler.GetRecommendationsByGenre)
+    }
+}
+	// Rutas de canciones
+	songRoutes := router.Group("/songs")
+	{
+		songRoutes.POST("/", songHandler.CreateSong)
+		songRoutes.GET("/:id", songHandler.GetSong)
+		songRoutes.GET("/genre/:genre", songHandler.GetSongsByGenre)
+	}
+
+	// Ruta independiente para registrar escuchas
+	router.POST("/listens", listenHandler.RecordListen)
+
+	// Mantener endpoints antiguos (compatibilidad)
+	router.GET("/usuario/:id", func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			c.JSON(400, gin.H{"error": "ID inválido"})
@@ -26,11 +68,8 @@ func main() {
 		}
 
 		var name, city string
-		user_id := id
-
-		if err := cassandra.Session.Query(`
-			SELECT name, city FROM users WHERE user_id = ? LIMIT 1`,
-			user_id).Scan(&name, &city); err != nil {
+		if err := session.Query(`SELECT name, city FROM users WHERE user_id = ? LIMIT 1`, id).
+			Scan(&name, &city); err != nil {
 			c.JSON(404, gin.H{"error": "Usuario no encontrado"})
 			return
 		}
@@ -42,16 +81,16 @@ func main() {
 		})
 	})
 
-	r.GET("/usuario", func(c *gin.Context) {
-		iter := cassandra.Session.Query(`SELECT user_id, name, city FROM users`).Iter()
+	router.GET("/usuario", func(c *gin.Context) {
+		iter := session.Query(`SELECT user_id, name, city FROM users`).Iter()
 		
 		var users []map[string]interface{}
-		var user_id int
+		var userID int
 		var name, city string
 		
-		for iter.Scan(&user_id, &name, &city) {
+		for iter.Scan(&userID, &name, &city) {
 			users = append(users, map[string]interface{}{
-				"user_id": user_id,
+				"user_id": userID,
 				"name":    name,
 				"city":    city,
 			})
@@ -65,66 +104,102 @@ func main() {
 		c.JSON(200, users)
 	})
 
-	// Endpoint para recomendaciones por ciudad
-	r.GET("/api/recommendations/local", func(c *gin.Context) {
-		city := c.Query("city")
-		if city == "" {
-			c.JSON(400, gin.H{"error": "City parameter is required"})
-			return
-		}
+router.GET("/api/recommendations/local", func(c *gin.Context) {
+    city := c.Query("city")
+    if city == "" {
+        c.JSON(400, gin.H{"error": "City parameter is required"})
+        return
+    }
 
-		var count int
-		if err := cassandra.Session.Query(`
-			SELECT COUNT(*) FROM listens_by_city WHERE city = ? LIMIT 1`,
-			city).Scan(&count); err != nil || count == 0 {
-			
-			c.JSON(200, gin.H{
-				"city":    city,
-				"tracks":  []interface{}{},
-				"message": "No tracks found for this city",
-			})
-			return
-		}
+    // 1. Verificar si hay datos para esta ciudad
+    var cityCount int
+    if err := session.Query(
+        `SELECT COUNT(*) FROM listens_by_city WHERE city = ? LIMIT 1`, 
+        city,
+    ).Scan(&cityCount); err != nil {
+        c.JSON(500, gin.H{
+            "error": "Database error",
+            "details": fmt.Sprintf("Error checking city data: %v", err),
+        })
+        return
+    }
 
-		iter := cassandra.Session.Query(`
-			SELECT song_id, COUNT(*) as listen_count 
-			FROM listens_by_city 
-			WHERE city = ? AND listen_date > ? 
-			GROUP BY song_id 
-			ORDER BY listen_count DESC 
-			LIMIT 10`,
-			city, time.Now().AddDate(0, 0, -30)).Iter()
+    if cityCount == 0 {
+        c.JSON(200, gin.H{
+            "city": city,
+            "tracks": []interface{}{},
+            "message": "No listening data available for this city",
+        })
+        return
+    }
 
-		var songs []map[string]interface{}
-		var songID int
-		var listenCount int64
+    // 2. Obtener todas las escuchas recientes para esta ciudad
+    iter := session.Query(
+        `SELECT song_id FROM listens_by_city 
+         WHERE city = ? AND listen_date > ?`,
+        city, time.Now().AddDate(0, 0, -30), // Últimos 30 días
+    ).Iter()
 
-		for iter.Scan(&songID, &listenCount) {
-			var title, artist, genre string
-			if err := cassandra.Session.Query(`
-				SELECT title, artist, genre FROM songs WHERE song_id = ? LIMIT 1`,
-				songID).Scan(&title, &artist, &genre); err == nil {
-				
-				songs = append(songs, map[string]interface{}{
-					"id":      songID,
-					"title":   title,
-					"artist":  artist,
-					"genre":   genre,
-					"listens": listenCount,
-				})
-			}
-		}
+    // Contar las ocurrencias de cada canción manualmente
+    songCounts := make(map[int]int)
+    var songID int
+    for iter.Scan(&songID) {
+        songCounts[songID]++
+    }
 
-		if err := iter.Close(); err != nil {
-			c.JSON(500, gin.H{"error": "Error processing tracks"})
-			return
-		}
+    if err := iter.Close(); err != nil {
+        c.JSON(500, gin.H{
+            "error": "Database error",
+            "details": fmt.Sprintf("Error processing tracks: %v", err),
+        })
+        return
+    }
 
-		c.JSON(200, gin.H{
-			"city":   city,
-			"tracks": songs,
-		})
-	})
+    // 3. Ordenar canciones por popularidad (mayor a menor)
+    type songStat struct {
+        id    int
+        count int
+    }
+    
+    var sortedSongs []songStat
+    for id, count := range songCounts {
+        sortedSongs = append(sortedSongs, songStat{id, count})
+    }
 
-	r.Run(":8080")
+    // Ordenar por conteo descendente
+    sort.Slice(sortedSongs, func(i, j int) bool {
+        return sortedSongs[i].count > sortedSongs[j].count
+    })
+
+    // 4. Obtener detalles de las top 10 canciones
+    var songs []map[string]interface{}
+    maxResults := 10
+    if len(sortedSongs) < maxResults {
+        maxResults = len(sortedSongs)
+    }
+
+    for i := 0; i < maxResults; i++ {
+        stat := sortedSongs[i]
+        var title, artist, genre string
+        if err := session.Query(
+            `SELECT title, artist, genre FROM songs WHERE song_id = ? LIMIT 1`,
+            stat.id,
+        ).Scan(&title, &artist, &genre); err == nil {
+            songs = append(songs, map[string]interface{}{
+                "id":      stat.id,
+                "title":   title,
+                "artist":  artist,
+                "genre":   genre,
+                "listens": stat.count,
+            })
+        }
+    }
+
+    c.JSON(200, gin.H{
+        "city":   city,
+        "tracks": songs,
+    })
+})
+	router.Run(":8080")
+
 }

@@ -25,46 +25,43 @@ export const metadata: Metadata = {
 
 export default function DashboardPage() {
 
-  const handleUserChange = (userId: number) => {
-    console.log("User changed to:", userId);
-    // Aquí puedes actualizar el estado global o hacer fetch de los datos del nuevo usuario
-    // Por ejemplo, podrías usar React Context o Zustand para manejar el estado del usuario
-  };
-
+  const [currentCity, setCurrentCity] = useState("San Francisco")
+  const [users, setUsers] = useState<any[]>([])
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
 
   // Cargar usuarios al iniciar
   useEffect(() => {
     const loadUsers = async () => {
       try {
-        const response = await fetch('http://localhost:8080/usuario');
-        const data = await response.json();
-        setUsers(data);
+        const response = await fetch('http://localhost:8080/usuario')
+        const data = await response.json()
+        setUsers(data)
         
-        // Establecer ciudad inicial si hay usuarios
+        // Establecer ciudad inicial y usuario si hay usuarios
         if (data.length > 0) {
-          setCurrentCity(data[0].city);
+          setCurrentCity(data[0].city)
+          setSelectedUserId(data[0].user_id)
         }
       } catch (error) {
-        console.error('Error loading users:', error);
+        console.error('Error loading users:', error)
       }
-    };
+    }
 
-    loadUsers();
-  }, []);
+    loadUsers()
+  }, [])
 
-  const [currentCity, setCurrentCity] = useState("San Francisco");
-  const [users, setUsers] = useState<any[]>([]);
-
+  const handleUserChange = (user: any) => {
+    setCurrentCity(user.city)
+    setSelectedUserId(user.user_id)
+  }
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <ClientHeader 
-        onCityChange={(city) => {
-          console.log("Changing city to:", city);
-          setCurrentCity(city);
-        }} 
+           <ClientHeader 
+        onCityChange={setCurrentCity} 
         users={users}
         initialCity={currentCity}
-      />      {/*
+        onUserChange={handleUserChange}
+      /> {/*
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <Music className="h-5 w-5 md:h-6 md:w-6" />
@@ -133,7 +130,7 @@ export default function DashboardPage() {
  <LocalPopular city={currentCity} />
           </TabsContent>
           <TabsContent value="recommended" className="space-y-4">
-            <PersonalRecommendations />
+            <PersonalRecommendations userId={selectedUserId || undefined} />
           </TabsContent>
           <TabsContent value="stats" className="space-y-4">
             <ListeningStats />
