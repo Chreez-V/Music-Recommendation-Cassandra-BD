@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { Calendar } from "lucide-react"
-import { getMonthlyGenres, getQuarterlyGenres, getUserGenres } from "@/lib/olap"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -15,6 +14,7 @@ const genreColors = {
   electronic: "#ff8042",
   jazz: "#0088fe",
   classical: "#00c49f",
+  // Agrega más géneros y colores según sea necesario
 }
 
 export function ListeningStats() {
@@ -22,22 +22,31 @@ export function ListeningStats() {
   const [viewType, setViewType] = useState<"monthly" | "quarterly" | "byUser">("monthly")
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
+      setError(null)
       try {
-        let result
+        let url = ""
         if (viewType === "monthly") {
-          result = await getMonthlyGenres(year)
+          url = `http://localhost:8080/api/olap/monthly?year=${year}`
         } else if (viewType === "quarterly") {
-          result = await getQuarterlyGenres(year)
+          url = `http://localhost:8080/api/olap/quarterly?year=${year}`
         } else {
-          result = await getUserGenres()
+          url = "http://localhost:8080/api/olap/by-user"
         }
+
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(`Error: ${response.status}`)
+        }
+        const result = await response.json()
         setData(result)
-      } catch (error) {
-        console.error("Error fetching OLAP data:", error)
+      } catch (err) {
+        console.error("Error fetching OLAP data:", err)
+        setError("Failed to load data. Please try again later.")
       } finally {
         setLoading(false)
       }
@@ -50,15 +59,28 @@ export function ListeningStats() {
   const allGenres = Array.from(
     new Set(
       data.flatMap(item => 
-        Object.keys(item).filter(key => key !== "month" && key !== "quarter" && key !== "userId" && key !== "userName")
+        Object.keys(item).filter(key => 
+          key !== "month" && 
+          key !== "quarter" && 
+          key !== "userId" && 
+          key !== "userName"
+        )
       )
     )
-  )
+  ).sort()
 
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <p className="text-red-500">{error}</p>
       </div>
     )
   }
@@ -95,8 +117,9 @@ export function ListeningStats() {
                 <SelectValue placeholder="Año" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="2023">2023</SelectItem>
-                <SelectItem value="2024">2024</SelectItem>
+                {Array.from({length: 5}, (_, i) => new Date().getFullYear() - i).map(y => (
+                  <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           )}
@@ -113,6 +136,7 @@ export function ListeningStats() {
           </CardTitle>
           <CardDescription>
             {viewType !== "byUser" && `Año: ${year}`}
+            {viewType === "byUser" && "Agrupado por usuario"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -121,23 +145,44 @@ export function ListeningStats() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={data}
-                  margin={{ top: 20, right: 30, left: 20, bottom: viewType === "byUser" ? 100 : 60 }}
+                  margin={{ 
+                    top: 20, 
+                    right: 30, 
+                    left: 20, 
+                    bottom: viewType === "byUser" ? 100 : 60 
+                  }}
+                  layout={viewType === "byUser" ? "vertical" : "horizontal"}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey={viewType === "monthly" ? "month" : viewType === "quarterly" ? "quarter" : "userName"} 
-                    angle={-45} 
-                    textAnchor="end"
-                    height={viewType === "byUser" ? 100 : 60}
-                  />
-                  <YAxis />
+                  {viewType === "byUser" ? (
+                    <>
+                      <YAxis 
+                        type="category" 
+                        dataKey="userName" 
+                        width={150}
+                        tick={{ fontSize: 12 }}
+                      />
+                      <XAxis type="number" />
+                    </>
+                  ) : (
+                    <>
+                      <XAxis 
+                        dataKey={viewType === "monthly" ? "month" : "quarter"} 
+                        angle={-45} 
+                        textAnchor="end"
+                        height={60}
+                        tick={{ fontSize: 12 }}
+                      />
+                      <YAxis />
+                    </>
+                  )}
                   <Tooltip />
                   <Legend />
                   {allGenres.map(genre => (
                     <Bar 
                       key={genre} 
                       dataKey={genre} 
-                      fill={genreColors[genre as keyof typeof genreColors] || "#8884d8"} 
+                      fill={genreColors[genre.toLowerCase() as keyof typeof genreColors] || "#8884d8"} 
                       name={genre.charAt(0).toUpperCase() + genre.slice(1)} 
                     />
                   ))}
@@ -177,7 +222,9 @@ export function ListeningStats() {
               <TableBody>
                 {data.map((row) => (
                   <TableRow key={row.month || row.quarter || row.userId}>
-                    <TableCell>{row.month || row.quarter || row.userName || `Usuario ${row.userId}`}</TableCell>
+                    <TableCell className="font-medium">
+                      {row.month || row.quarter || row.userName || `Usuario ${row.userId}`}
+                    </TableCell>
                     {allGenres.map(genre => (
                       <TableCell key={genre} className="text-right">{row[genre] || 0}</TableCell>
                     ))}

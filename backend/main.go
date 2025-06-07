@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 	"sort"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gin-contrib/cors"
 )
@@ -200,6 +199,320 @@ router.GET("/api/recommendations/local", func(c *gin.Context) {
         "tracks": songs,
     })
 })
+
+
+
+
+// Rutas OLAP
+// Rutas OLAP
+olapRoutes := router.Group("/api/olap")
+{
+
+
+olapRoutes.GET("/monthly", func(c *gin.Context) {
+    year := c.Query("year")
+    if year == "" {
+        c.JSON(400, gin.H{"error": "Year parameter is required"})
+        return
+    }
+
+    // Convertir año a time.Time para los límites
+    yearInt, err := strconv.Atoi(year)
+    if err != nil {
+        c.JSON(400, gin.H{"error": "Invalid year format"})
+        return
+    }
+
+    startDate := time.Date(yearInt, time.January, 1, 0, 0, 0, 0, time.UTC)
+    endDate := startDate.AddDate(1, 0, 0) // Un año después
+
+    // Primero obtener todas las escuchas en el rango de fechas
+    query := `
+        SELECT 
+            user_id,
+            song_id,
+            listen_date
+        FROM listens
+        WHERE listen_date >= ? AND listen_date < ?
+        ALLOW FILTERING`
+
+    iter := session.Query(query, startDate, endDate).Iter()
+
+    var userID int
+    var songID int
+    var listenDate time.Time
+
+    // Procesar escuchas y recolectar IDs de canciones
+    monthlyCounts := make(map[string]map[int]int) // Mapa de mes -> song_id -> conteo
+    songGenres := make(map[int]string)            // Mapa de song_id -> género
+
+    for iter.Scan(&userID, &songID, &listenDate) {
+        // Agrupar por mes (formato YYYY-MM) y canción
+        monthKey := listenDate.Format("2006-01")
+        
+        if _, ok := monthlyCounts[monthKey]; !ok {
+            monthlyCounts[monthKey] = make(map[int]int)
+        }
+        monthlyCounts[monthKey][songID]++
+        
+        // Si no tenemos el género de esta canción, lo obtendremos después
+        if _, ok := songGenres[songID]; !ok {
+            songGenres[songID] = ""
+        }
+    }
+
+    if err := iter.Close(); err != nil {
+        c.JSON(500, gin.H{"error": "Database error", "details": err.Error()})
+        return
+    }
+
+    // Obtener géneros para todas las canciones únicas
+    if len(songGenres) > 0 {
+        songIDs := make([]int, 0, len(songGenres))
+        for id := range songGenres {
+            songIDs = append(songIDs, id)
+        }
+
+        // Consulta por lotes para obtener géneros
+        for _, id := range songIDs {
+            var genre string
+            if err := session.Query(`SELECT genre FROM songs WHERE song_id = ? LIMIT 1`, id).Scan(&genre); err == nil {
+                songGenres[id] = genre
+            }
+        }
+    }
+
+    // Agregar por mes y género
+    monthlyData := make(map[string]map[string]int)
+    for month, songs := range monthlyCounts {
+        if _, ok := monthlyData[month]; !ok {
+            monthlyData[month] = make(map[string]int)
+        }
+        
+        for songID, count := range songs {
+            genre := songGenres[songID]
+            if genre != "" {
+                monthlyData[month][genre] += count
+            }
+        }
+    }
+
+    // Convertir a formato para el frontend
+    var result []map[string]interface{}
+    for month, genres := range monthlyData {
+        entry := map[string]interface{}{"month": month}
+        for g, c := range genres {
+            entry[g] = c
+        }
+        result = append(result, entry)
+    }
+
+    c.JSON(200, result)
+})
+
+
+olapRoutes.GET("/quarterly", func(c *gin.Context) {
+    year := c.Query("year")
+    if year == "" {
+        c.JSON(400, gin.H{"error": "Year parameter is required"})
+        return
+    }
+
+    // Convertir año a time.Time para los límites
+    yearInt, err := strconv.Atoi(year)
+    if err != nil {
+        c.JSON(400, gin.H{"error": "Invalid year format"})
+        return
+    }
+
+    startDate := time.Date(yearInt, time.January, 1, 0, 0, 0, 0, time.UTC)
+    endDate := startDate.AddDate(1, 0, 0) // Un año después
+
+    // Primero obtener todas las escuchas en el rango de fechas
+    query := `
+        SELECT 
+            user_id,
+            song_id,
+            listen_date
+        FROM listens
+        WHERE listen_date >= ? AND listen_date < ?
+        ALLOW FILTERING`
+
+    iter := session.Query(query, startDate, endDate).Iter()
+
+    var userID int
+    var songID int
+    var listenDate time.Time
+
+    // Procesar escuchas y recolectar IDs de canciones
+    quarterlyCounts := make(map[string]map[int]int) // Mapa de trimestre -> song_id -> conteo
+    songGenres := make(map[int]string)              // Mapa de song_id -> género
+
+    for iter.Scan(&userID, &songID, &listenDate) {
+        // Determinar el trimestre (Q1, Q2, Q3, Q4)
+        quarter := fmt.Sprintf("Q%d-%d", (listenDate.Month()-1)/3+1, listenDate.Year())
+        
+        if _, ok := quarterlyCounts[quarter]; !ok {
+            quarterlyCounts[quarter] = make(map[int]int)
+        }
+        quarterlyCounts[quarter][songID]++
+        
+        // Si no tenemos el género de esta canción, lo obtendremos después
+        if _, ok := songGenres[songID]; !ok {
+            songGenres[songID] = ""
+        }
+    }
+
+    if err := iter.Close(); err != nil {
+        c.JSON(500, gin.H{"error": "Database error", "details": err.Error()})
+        return
+    }
+
+    // Obtener géneros para todas las canciones únicas
+    if len(songGenres) > 0 {
+        songIDs := make([]int, 0, len(songGenres))
+        for id := range songGenres {
+            songIDs = append(songIDs, id)
+        }
+
+        // Consulta por lotes para obtener géneros
+        for _, id := range songIDs {
+            var genre string
+            if err := session.Query(`SELECT genre FROM songs WHERE song_id = ? LIMIT 1`, id).Scan(&genre); err == nil {
+                songGenres[id] = genre
+            }
+        }
+    }
+
+    // Agregar por trimestre y género
+    quarterlyData := make(map[string]map[string]int)
+    for quarter, songs := range quarterlyCounts {
+        if _, ok := quarterlyData[quarter]; !ok {
+            quarterlyData[quarter] = make(map[string]int)
+        }
+        
+        for songID, count := range songs {
+            genre := songGenres[songID]
+            if genre != "" {
+                quarterlyData[quarter][genre] += count
+            }
+        }
+    }
+
+    // Convertir a formato para el frontend
+    var result []map[string]interface{}
+    for quarter, genres := range quarterlyData {
+        entry := map[string]interface{}{"quarter": quarter}
+        for g, c := range genres {
+            entry[g] = c
+        }
+        result = append(result, entry)
+    }
+
+    c.JSON(200, result)
+})
+
+
+    olapRoutes.GET("/by-user", func(c *gin.Context) {
+        // Primero obtener todas las escuchas
+        listenQuery := `
+            SELECT 
+                user_id,
+                song_id
+            FROM listens`
+
+        listenIter := session.Query(listenQuery).Iter()
+
+        var userID int
+        var songID int
+
+        // Procesar escuchas y recolectar datos
+        userCounts := make(map[int]map[int]int) // Mapa de user_id -> song_id -> conteo
+        songGenres := make(map[int]string)      // Mapa de song_id -> género
+
+        for listenIter.Scan(&userID, &songID) {
+            if _, ok := userCounts[userID]; !ok {
+                userCounts[userID] = make(map[int]int)
+            }
+            userCounts[userID][songID]++
+            
+            // Si no tenemos el género de esta canción, lo obtendremos después
+            if _, ok := songGenres[songID]; !ok {
+                songGenres[songID] = ""
+            }
+        }
+
+        if err := listenIter.Close(); err != nil {
+            c.JSON(500, gin.H{"error": "Database error", "details": err.Error()})
+            return
+        }
+
+        // Obtener géneros para todas las canciones únicas
+        if len(songGenres) > 0 {
+            songIDs := make([]int, 0, len(songGenres))
+            for id := range songGenres {
+                songIDs = append(songIDs, id)
+            }
+
+            // Consulta por lotes para obtener géneros
+            for _, id := range songIDs {
+                var genre string
+                if err := session.Query(`SELECT genre FROM songs WHERE song_id = ? LIMIT 1`, id).Scan(&genre); err == nil {
+                    songGenres[id] = genre
+                }
+            }
+        }
+
+        // Obtener nombres de usuario
+        userNames := make(map[int]string)
+        for userID := range userCounts {
+            var name string
+            if err := session.Query(`SELECT name FROM users WHERE user_id = ? LIMIT 1`, userID).Scan(&name); err == nil {
+                userNames[userID] = name
+            }
+        }
+
+        // Agregar por usuario y género
+        userData := make(map[int]map[string]int)
+        for userID, songs := range userCounts {
+            if _, ok := userData[userID]; !ok {
+                userData[userID] = make(map[string]int)
+            }
+            
+            for songID, count := range songs {
+                genre := songGenres[songID]
+                if genre != "" {
+                    userData[userID][genre] += count
+                }
+            }
+        }
+
+        // Convertir a formato para el frontend
+        var result []map[string]interface{}
+        for userID, genres := range userData {
+            userName := userNames[userID]
+            if userName == "" {
+                userName = fmt.Sprintf("User %d", userID)
+            }
+            
+            entry := map[string]interface{}{
+                "userId": userID,
+                "userName": userName,
+            }
+            for g, c := range genres {
+                entry[g] = c
+            }
+            result = append(result, entry)
+        }
+
+        c.JSON(200, result)
+    })
+
+
+
+	}
+
+
 	router.Run(":8080")
 
 }
